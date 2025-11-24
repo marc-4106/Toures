@@ -9,7 +9,7 @@ import { Platform } from "react-native";
 // Use EXACTLY what the Firebase Console shows for Storage bucket
 const firebaseConfig = {
   
-  apiKey: "AIzaSyB8ovXpuWQwljZo7HwiS47QkYW6Wbjba2Q",
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   
   projectId: "toures-2025",
   storageBucket: "toures-2025.firebasestorage.app",
