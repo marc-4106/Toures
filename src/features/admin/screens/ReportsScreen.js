@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+// src/features/admin/screens/ReportsScreen.js
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -6,15 +7,18 @@ import {
   ScrollView,
   Dimensions,
   ActivityIndicator,
+  TouchableOpacity,
+  Alert,
+  Modal,
+  Linking,
 } from "react-native";
+
 import { BarChart, PieChart } from "react-native-chart-kit";
+import ViewShot from "react-native-view-shot";
 import { fetchReportMetrics } from "../../../services/firestoreReportsAndLogs";
 
-/* ------------------------------------------------------------------ */
-/*  CONSTANTS                                                         */
-/* ------------------------------------------------------------------ */
-
 const screenWidth = Dimensions.get("window").width;
+const CHART_WIDTH = Math.min(screenWidth - 60, 900);
 
 const chartConfig = {
   backgroundColor: "#fff",
@@ -28,16 +32,118 @@ const chartConfig = {
   propsForBackgroundLines: { stroke: "transparent" },
 };
 
-const safeName = (val) =>
-  !val || typeof val !== "string" ? "Unknown" : val.trim() || "Unknown";
+const safeName = (v) => (!v ? "Unknown" : String(v).trim());
+const safeNum = (v) => (isNaN(Number(v)) ? 0 : Number(v));
 
-const safeNumber = (val) => (isNaN(Number(val)) ? 0 : Number(val));
+/* ================================================================
+   EXPORT OPTIONS MODAL
+================================================================ */
+const ExportOptionsModal = ({
+  visible,
+  selection,
+  setSelection,
+  onClose,
+  onConfirm,
+}) => {
+  const toggle = (key) => {
+    setSelection((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
 
-/* ------------------------------------------------------------------ */
-/*  DESTINATION REPORTS COMPONENT                                     */
-/* ------------------------------------------------------------------ */
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Export Reports</Text>
+          <Text style={styles.modalSubtitle}>Choose what to export</Text>
 
-const DestinationReports = ({ metrics, isWide, cardWidths, setCardWidths }) => {
+          <View style={styles.modalGrid}>
+            <TouchableOpacity
+              style={[
+                styles.optionCard,
+                selection.summary && styles.optionCardSelected,
+              ]}
+              onPress={() => toggle("summary")}
+            >
+              <Text style={styles.optionTitle}>Destination Overview</Text>
+              <Text style={styles.optionDesc}>
+                Summary + Completeness
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.optionCard,
+                selection.engagement && styles.optionCardSelected,
+              ]}
+              onPress={() => toggle("engagement")}
+            >
+              <Text style={styles.optionTitle}>Engagement</Text>
+              <Text style={styles.optionDesc}>
+                Interests + Most Used
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.optionCard,
+                selection.user && styles.optionCardSelected,
+              ]}
+              onPress={() => toggle("user")}
+            >
+              <Text style={styles.optionTitle}>User Reports</Text>
+              <Text style={styles.optionDesc}>User stats</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.optionCard,
+                selection.ticket && styles.optionCardSelected,
+              ]}
+              onPress={() => toggle("ticket")}
+            >
+              <Text style={styles.optionTitle}>Ticket Reports</Text>
+              <Text style={styles.optionDesc}>Support metrics</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.optionCard,
+                styles.optionCardFull,
+                selection.fullPage && styles.optionCardSelected,
+              ]}
+              onPress={() => toggle("fullPage")}
+            >
+              <Text style={styles.optionTitle}>Export Full Page</Text>
+              <Text style={styles.optionDesc}>All sections</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.modalCancelBtn} onPress={onClose}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalExportBtn} onPress={onConfirm}>
+              <Text style={styles.modalExportText}>Export</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+/* ================================================================
+   DESTINATION REPORTS
+================================================================ */
+const DestinationReports = ({
+  metrics,
+  summaryRef,
+  engagementRef,
+  isWide,
+}) => {
   const destinationData = {
     labels: ["Total", "Active", "Archived", "Featured"],
     datasets: [
@@ -52,214 +158,154 @@ const DestinationReports = ({ metrics, isWide, cardWidths, setCardWidths }) => {
     ],
   };
 
-  const completeness = metrics.dataCompleteness || {};
-
-  const completenessValues = [
-    completeness.missingImage || 0,
-    completeness.missingContact || 0,
-    completeness.missingCoordinates || 0,
-    completeness.missingDescription || 0,
-    completeness.missingCity || 0,
-    completeness.missingTags || 0,
-    completeness.missingActivities || 0,
-  ];
-
+  const comp = metrics.dataCompleteness || {};
   const completenessData = {
     labels: ["Image", "Contact", "Coords", "Desc", "City", "Tags", "Activities"],
-    datasets: [{ data: completenessValues }],
+    datasets: [
+      {
+        data: [
+          comp.missingImage || 0,
+          comp.missingContact || 0,
+          comp.missingCoordinates || 0,
+          comp.missingDescription || 0,
+          comp.missingCity || 0,
+          comp.missingTags || 0,
+          comp.missingActivities || 0,
+        ],
+      },
+    ],
   };
 
-  const tagData = (metrics.topTags || []).map((item, i) => ({
-    name: `${item.tag} (${item.count})`,
-    population: item.count,
+  const tagData = (metrics.topTags || []).map((t, i) => ({
+    name: `${t.tag} (${t.count})`,
+    population: t.count,
     color: ["#0f37f1", "#3b82f6", "#f59e0b", "#16a34a", "#8b5cf6"][i % 5],
-    legendFontColor: "#333",
-    legendFontSize: 12,
   }));
 
   const mostUsed = metrics.mostUsedDestinations || [];
-  const totalMostUsedCount = mostUsed.reduce(
-    (sum, d) => sum + safeNumber(d.count),
-    0
-  );
+  const totalMU = mostUsed.reduce((a, m) => a + safeNum(m.count), 0);
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>Destination Reports</Text>
+    <>
+      {/* SUMMARY + COMPLETENESS */}
+      <ViewShot ref={summaryRef} options={{ format: "png", quality: 1 }}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Destination Overview</Text>
 
-      {/* Row 1 */}
-      <View
-        style={[
-          styles.row,
-          { flexDirection: isWide ? "row" : "column", alignItems: "center" },
-        ]}
-      >
-        {/* Summary */}
-        <View
-          style={[styles.subCard, isWide ? styles.half : styles.full]}
-          onLayout={(e) =>
-            setCardWidths((w) => ({
-              ...w,
-              summary: e.nativeEvent.layout.width,
-            }))
-          }
-        >
-          <Text style={styles.subTitle}>Destination Summary</Text>
+          {/* Summary full width */}
+          <View style={styles.subCard}>
+            <Text style={styles.subTitle}>Destination Summary</Text>
+            <BarChart
+              data={destinationData}
+              width={CHART_WIDTH}
+              height={240}
+              fromZero
+              chartConfig={chartConfig}
+              showValuesOnTopOfBars
+              style={styles.chartBox}
+            />
+          </View>
 
-          <BarChart
-            data={destinationData}
-            width={(cardWidths.summary || screenWidth) - 60}
-            height={240}
-            fromZero
-            showValuesOnTopOfBars
-            chartConfig={chartConfig}
-            withInnerLines={false}
-            style={styles.chartBox}
-          />
-        </View>
-
-        {/* Tag Interest */}
-        <View
-          style={[styles.subCard, isWide ? styles.half : styles.full]}
-          onLayout={(e) =>
-            setCardWidths((w) => ({ ...w, tags: e.nativeEvent.layout.width }))
-          }
-        >
-      <Text style={styles.subTitle}>Most Selected Interests</Text>
-
-      {tagData.length > 0 ? (
-        tagData
-          .sort((a, b) => b.population - a.population)
-          .map((item, index) => {
-            const total = tagData.reduce((sum, t) => sum + t.population, 0);
-            const percent = ((item.population / total) * 100).toFixed(1);
-            const interest = item.name.split(" (")[0]; // Normalized interest text
-
-            return (
-              <View key={index} style={styles.interestRow}>
-                {/* Text + bar */}
-                <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text numberOfLines={1} style={styles.interestName}>
-                    {interest}
-                  </Text>
-                  <Text style={styles.interestPercent}>{percent}%</Text>
-
-                  {/* Slim progress bar */}
-                  <View style={styles.interestProgressBg}>
-                    <View
-                      style={[
-                        styles.interestProgressFill,
-                        { width: `${percent}%`, backgroundColor: item.color },
-                      ]}
-                    />
-                  </View>
-                </View>
-
-                {/* Count */}
-                <Text style={styles.interestCount}>{item.population}</Text>
-              </View>
-            );
-          })
-      ) : (
-        <Text style={styles.noData}>No interest data available</Text>
-      )}
-
-  
-        </View>
-      </View>
-
-      {/* Row 2 */}
-      <View
-        style={[
-          styles.row,
-          { flexDirection: isWide ? "row" : "column", alignItems: "center" },
-        ]}
-      >
-        {/* Most Used */}
-        <View style={[styles.subCard, isWide ? styles.oneThird : styles.full]}>
-          <Text style={styles.subTitle}>Most Used Destinations</Text>
-
-          {mostUsed.length > 0 ? (
-            mostUsed.map((d, i) => {
-              const count = safeNumber(d.count);
-              const percentage =
-                totalMostUsedCount > 0
-                  ? ((count / totalMostUsedCount) * 100).toFixed(1)
-                  : "0.0";
-
-              return (
-                <View key={i} style={styles.interestRow}>
-                  {/* Rank Number - Kept but aligned with new style */}
-                  <Text style={styles.rank}>{i + 1}.</Text>
-
-                  {/* Text + Bar Container */}
-                  <View style={{ flex: 1, marginRight: 8 }}>
-                    <Text numberOfLines={1} style={styles.interestName}>
-                      {safeName(d.name)}
-                    </Text>
-                    <Text style={styles.interestPercent}>{percentage}% usage</Text>
-
-                    {/* Slim progress bar */}
-                    <View style={styles.interestProgressBg}>
-                      <View
-                        style={[
-                          styles.interestProgressFill,
-                          { width: `${percentage}%`, backgroundColor: "#0f37f1" },
-                        ]}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Count */}
-                  <Text style={styles.interestCount}>{count}×</Text>
-                </View>
-              );
-            })
-          ) : (
-            <Text style={styles.noData}>No usage data</Text>
-          )}
-        </View>
-
-        {/* Completeness */}
-        <View
-          style={[styles.subCard, isWide ? styles.twoThird : styles.full]}
-          onLayout={(e) =>
-            setCardWidths((w) => ({
-              ...w,
-              completeness: e.nativeEvent.layout.width,
-            }))
-          }
-        >
-          <Text style={styles.subTitle}>Data Completeness</Text>
-
-          <BarChart
-            data={completenessData}
-            width={(cardWidths.completeness || screenWidth) - 60}
-            height={240}
-            fromZero
-            showValuesOnTopOfBars
-            chartConfig={chartConfig}
-            withInnerLines={false}
-            style={styles.chartBox}
-          />
-
-          <Text style={styles.smallNote}>
-            Overall Quality:{" "}
-            <Text style={styles.highlight}>
-              {completeness.completeness || 0}%
+          {/* Completeness full width */}
+          <View style={styles.subCard}>
+            <Text style={styles.subTitle}>Data Completeness</Text>
+            <BarChart
+              data={completenessData}
+              width={CHART_WIDTH}
+              height={240}
+              fromZero
+              chartConfig={chartConfig}
+              showValuesOnTopOfBars
+              style={styles.chartBox}
+            />
+            <Text style={styles.smallNote}>
+              Quality: <Text style={styles.highlight}>{comp.completeness || 0}%</Text>
             </Text>
-          </Text>
+          </View>
         </View>
-      </View>
-    </View>
+      </ViewShot>
+
+      {/* INTERESTS + MOST USED (50/50) */}
+      <ViewShot ref={engagementRef} options={{ format: "png", quality: 1 }}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Destination Engagement</Text>
+
+          <View style={[styles.row, { flexDirection: isWide ? "row" : "column" }]}>
+            {/* Interests */}
+            <View style={[styles.subCard, styles.half]}>
+              <Text style={styles.subTitle}>Most Selected Interests</Text>
+
+              {tagData.length ? (
+                tagData.map((item, i) => {
+                  const total = tagData.reduce((a, b) => a + b.population, 0);
+                  const percent = ((item.population / total) * 100).toFixed(1);
+                  const interest = item.name.split(" (")[0];
+
+                  return (
+                    <View key={i} style={styles.interestRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.interestName}>{interest}</Text>
+                        <Text style={styles.interestPercent}>{percent}%</Text>
+                        <View style={styles.interestProgressBg}>
+                          <View
+                            style={[
+                              styles.interestProgressFill,
+                              { width: `${percent}%`, backgroundColor: item.color },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                      <Text style={styles.interestCount}>{item.population}</Text>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={styles.noData}>No interest data</Text>
+              )}
+            </View>
+
+            {/* Most Used */}
+            <View style={[styles.subCard, styles.half]}>
+              <Text style={styles.subTitle}>Most Used Destinations</Text>
+
+              {mostUsed.length ? (
+                mostUsed.map((m, i) => {
+                  const p = totalMU ? ((m.count / totalMU) * 100).toFixed(1) : 0;
+                  return (
+                    <View key={i} style={styles.interestRow}>
+                      <Text style={styles.rank}>{i + 1}.</Text>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.interestName}>{safeName(m.name)}</Text>
+                        <Text style={styles.interestPercent}>{p}% usage</Text>
+                        <View style={styles.interestProgressBg}>
+                          <View
+                            style={[
+                              styles.interestProgressFill,
+                              { width: `${p}%`, backgroundColor: "#0f37f1" },
+                            ]}
+                          />
+                        </View>
+                      </View>
+                      <Text style={styles.interestCount}>{m.count}</Text>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={styles.noData}>No usage data</Text>
+              )}
+            </View>
+          </View>
+        </View>
+      </ViewShot>
+    </>
   );
 };
 
-/* ------------------------------------------------------------------ */
-/*  USER REPORTS                                                      */
-/* ------------------------------------------------------------------ */
-
-const UserReports = ({ metrics, isWide, cardWidths, setCardWidths }) => {
+/* ================================================================
+   USER REPORTS
+================================================================ */
+const UserReports = ({ metrics, userRef }) => {
   const barData = {
     labels: ["Total", "Active", "Restricted"],
     datasets: [
@@ -273,141 +319,83 @@ const UserReports = ({ metrics, isWide, cardWidths, setCardWidths }) => {
     ],
   };
 
-  const rolePieData = Object.entries(metrics.roleCounts || {}).map(
-    ([role, count], index) => ({
+  const roleData = Object.entries(metrics.roleCounts || {}).map(
+    ([role, count], i) => ({
       name: role,
       population: count,
-      color: ["#0f37f1", "#3b82f6", "#f59e0b", "#8b5cf6", "#16a34a"][index % 5],
-      legendFontColor: "#333",
-      legendFontSize: 12,
+      color: ["#0f37f1", "#3b82f6", "#f59e0b", "#16a34a", "#8b5cf6"][i % 5],
     })
   );
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>User Reports</Text>
+    <ViewShot ref={userRef} options={{ format: "png", quality: 1 }}>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>User Reports</Text>
 
-      <View
-        style={[
-          styles.row,
-          { flexDirection: isWide ? "row" : "column", alignItems: "center" },
-        ]}
-      >
-        <View
-          style={[styles.subCard, isWide ? styles.half : styles.full]}
-          onLayout={(e) =>
-            setCardWidths((w) => ({
-              ...w,
-              userSummary: e.nativeEvent.layout.width,
-            }))
-          }
-        >
+        <View style={styles.subCard}>
           <Text style={styles.subTitle}>User Summary</Text>
-
           <BarChart
             data={barData}
-            width={(cardWidths.userSummary || screenWidth) - 60}
+            width={CHART_WIDTH}
             height={240}
-            chartConfig={chartConfig}
-            withInnerLines={false}
+            fromZero
             showValuesOnTopOfBars
-            style={styles.chartBox}
+            chartConfig={chartConfig}
           />
-
-          <Text style={styles.smallNote}>
-            Verification Rate:{" "}
-            <Text style={styles.highlight}>
-              {metrics.verificationRate || 0}%
-            </Text>
-          </Text>
         </View>
 
-        <View
-          style={[styles.subCard, isWide ? styles.half : styles.full]}
-          onLayout={(e) =>
-            setCardWidths((w) => ({ ...w, roles: e.nativeEvent.layout.width }))
-          }
-        >
+        <View style={styles.subCard}>
           <Text style={styles.subTitle}>Role Distribution</Text>
-
-          {rolePieData.length > 0 ? (
-            <PieChart
-              data={rolePieData}
-              width={(cardWidths.roles || screenWidth) - 80}
-              height={220}
-              chartConfig={chartConfig}
-              accessor="population"
-              backgroundColor="transparent"
-              absolute
-            />
-          ) : (
-            <Text style={styles.noData}>No role data available</Text>
-          )}
-        </View>
-      </View>
-    </View>
-  );
-};
-
-/* ------------------------------------------------------------------ */
-/*  TICKET REPORTS (Professional UI)                                 */
-/* ------------------------------------------------------------------ */
-
-const TicketReports = ({ metrics, isWide, cardWidths, setCardWidths }) => {
-  const ticketStatusData = [
-    {
-      name: "Resolved",
-      population: metrics.resolvedTickets || 0,
-      color: "#16a34a",
-      legendFontColor: "#333",
-      legendFontSize: 12,
-    },
-    {
-      name: "Pending / New",
-      population: metrics.newTickets || 0,
-      color: "#f59e0b",
-      legendFontColor: "#333",
-      legendFontSize: 12,
-    },
-  ];
-
-  return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>Support Ticket Reports</Text>
-
-      <View
-        style={[
-          styles.ticketContainer,
-          { flexDirection: isWide ? "row" : "column" },
-        ]}
-      >
-        {/* Status Chart */}
-        <View
-          style={[styles.ticketChartBox, !isWide && styles.fullWidth]}
-          onLayout={(e) =>
-            setCardWidths((w) => ({
-              ...w,
-              ticketStatus: e.nativeEvent.layout.width,
-            }))
-          }
-        >
-          <Text style={styles.sectionTitle}>Status Overview</Text>
-
           <PieChart
-            data={ticketStatusData}
-            width={(cardWidths.ticketStatus || screenWidth) - 60}
+            data={roleData}
+            width={CHART_WIDTH}
             height={240}
             chartConfig={chartConfig}
             accessor="population"
             backgroundColor="transparent"
-            absolute
+          />
+        </View>
+      </View>
+    </ViewShot>
+  );
+};
+
+/* ================================================================
+   TICKET REPORTS
+================================================================ */
+const TicketReports = ({ metrics, ticketRef }) => {
+  const statusData = [
+    {
+      name: "Resolved",
+      population: metrics.resolvedTickets || 0,
+      color: "#16a34a",
+    },
+    {
+      name: "Pending",
+      population: metrics.newTickets || 0,
+      color: "#f59e0b",
+    },
+  ];
+
+  return (
+    <ViewShot ref={ticketRef} options={{ format: "png", quality: 1 }}>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Support Ticket Reports</Text>
+
+        <View style={styles.subCard}>
+          <Text style={styles.subTitle}>Status Overview</Text>
+          <PieChart
+            data={statusData}
+            width={CHART_WIDTH}
+            height={240}
+            chartConfig={chartConfig}
+            accessor="population"
+            backgroundColor="transparent"
           />
         </View>
 
-        {/* Summary Cards */}
-        <View style={[styles.ticketSummaryBox, !isWide && styles.fullWidth]}>
-          <Text style={styles.sectionTitle}>Ticket Summary</Text>
-
+        <View style={styles.subCard}>
+          <Text style={styles.subTitle}>Ticket Summary</Text>
           <View style={styles.statsGrid}>
             <View style={[styles.statCard, styles.blueLeftBorder]}>
               <Text style={styles.statLabel}>Total Tickets</Text>
@@ -416,9 +404,7 @@ const TicketReports = ({ metrics, isWide, cardWidths, setCardWidths }) => {
 
             <View style={[styles.statCard, styles.greenLeftBorder]}>
               <Text style={styles.statLabel}>Resolved</Text>
-              <Text style={styles.statValue}>
-                {metrics.resolvedTickets || 0}
-              </Text>
+              <Text style={styles.statValue}>{metrics.resolvedTickets || 0}</Text>
             </View>
 
             <View style={[styles.statCard, styles.yellowLeftBorder]}>
@@ -435,210 +421,309 @@ const TicketReports = ({ metrics, isWide, cardWidths, setCardWidths }) => {
           </View>
         </View>
       </View>
+    </ViewShot>
+  );
+};
+
+/* ================================================================
+   MAIN SCREEN + CLOUD PDF EXPORT
+================================================================ */
+const ReportsScreen = () => {
+  const [metrics, setMetrics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState("");
+
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [exportSelection, setExportSelection] = useState({
+    summary: true,
+    engagement: false,
+    user: false,
+    ticket: false,
+    fullPage: false,
+  });
+
+  // Refs for screenshots
+  const summaryRef = useRef();
+  const engagementRef = useRef();
+  const userRef = useRef();
+  const ticketRef = useRef();
+
+  useEffect(() => {
+    const load = async () => {
+      const data = await fetchReportMetrics();
+      setMetrics(data);
+      setLoading(false);
+    };
+    load();
+  }, []);
+
+  /* CAPTURE as base64 */
+  const captureSection = async (ref, label) => {
+    try {
+      setLoadingMessage(`Capturing: ${label}`);
+      const base64 = await ref.current.capture();
+      return base64;
+    } catch (err) {
+      console.log("Capture failed:", label);
+      return null;
+    }
+  };
+
+  /* EXPORT TO FIREBASE CLOUD PDF */
+  const handlePerformExport = async () => {
+    try {
+      setExportModalVisible(false);
+      setLoading(true);
+      setLoadingMessage("Preparing export...");
+
+      let sectionsToExport = [];
+
+      if (exportSelection.fullPage) {
+        sectionsToExport = ["summary", "engagement", "user", "ticket"];
+      } else {
+        Object.keys(exportSelection).forEach((key) => {
+          if (exportSelection[key] && key !== "fullPage") {
+            sectionsToExport.push(key);
+          }
+        });
+      }
+
+      const payloadSections = [];
+
+      for (const sec of sectionsToExport) {
+        let img = null;
+
+        if (sec === "summary")
+          img = await captureSection(summaryRef, "Destination Overview");
+        if (sec === "engagement")
+          img = await captureSection(engagementRef, "Engagement");
+        if (sec === "user")
+          img = await captureSection(userRef, "User Reports");
+        if (sec === "ticket")
+          img = await captureSection(ticketRef, "Ticket Reports");
+
+        if (img) {
+          payloadSections.push({
+            title:
+              sec === "summary"
+                ? "Destination Overview"
+                : sec === "engagement"
+                ? "Destination Engagement"
+                : sec === "user"
+                ? "User Reports"
+                : "Support Ticket Reports",
+            image: img,
+          });
+        }
+      }
+
+      if (!payloadSections.length) {
+        Alert.alert("Export failed", "No sections captured.");
+        setLoading(false);
+        return;
+      }
+
+      setLoadingMessage("Generating PDF on server...");
+
+      const response = await fetch(
+        "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/generateReportPDF",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: "Toures Reports",
+            sections: payloadSections,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (data.url) {
+        setLoading(false);
+        Alert.alert("PDF Ready", "Your report is generated.", [
+          { text: "Open PDF", onPress: () => Linking.openURL(data.url) },
+        ]);
+      } else {
+        throw new Error("Invalid server response");
+      }
+    } catch (err) {
+      console.error(err);
+      Alert.alert("Export Failed", "Could not generate PDF.");
+      setLoading(false);
+    }
+  };
+
+  if (loading && !metrics)
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0f37f1" />
+        <Text>Loading Reports…</Text>
+      </View>
+    );
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <TouchableOpacity
+          style={styles.exportBtn}
+          onPress={() => setExportModalVisible(true)}
+        >
+          <Text style={styles.exportText}>📄 Export Reports</Text>
+        </TouchableOpacity>
+
+        <DestinationReports
+          metrics={metrics}
+          summaryRef={summaryRef}
+          engagementRef={engagementRef}
+          isWide={screenWidth > 900}
+        />
+
+        <UserReports metrics={metrics} userRef={userRef} />
+        <TicketReports metrics={metrics} ticketRef={ticketRef} />
+      </ScrollView>
+
+      <ExportOptionsModal
+        visible={exportModalVisible}
+        selection={exportSelection}
+        setSelection={setExportSelection}
+        onClose={() => setExportModalVisible(false)}
+        onConfirm={handlePerformExport}
+      />
+
+      {/* EXPORT LOADING OVERLAY */}
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingText}>{loadingMessage}</Text>
+        </View>
+      )}
     </View>
   );
 };
 
-/* ------------------------------------------------------------------ */
-/*  MAIN SCREEN                                                       */
-/* ------------------------------------------------------------------ */
-
-const ReportsScreen = () => {
-  const [metrics, setMetrics] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [cardWidths, setCardWidths] = useState({});
-
-  useEffect(() => {
-    const loadReports = async () => {
-      try {
-        const data = await fetchReportMetrics();
-        setMetrics(data);
-      } catch (error) {
-        console.error("Failed to load metrics:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadReports();
-  }, []);
-
-  if (loading)
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0f37f1" />
-        <Text>Loading Reports...</Text>
-      </View>
-    );
-
-  if (!metrics)
-    return (
-      <View style={styles.centered}>
-        <Text>No report data available.</Text>
-      </View>
-    );
-
-  const isWide = screenWidth >= 1200;
-
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
-      <DestinationReports
-        metrics={metrics}
-        isWide={isWide}
-        cardWidths={cardWidths}
-        setCardWidths={setCardWidths}
-      />
-
-      <UserReports
-        metrics={metrics}
-        isWide={isWide}
-        cardWidths={cardWidths}
-        setCardWidths={setCardWidths}
-      />
-
-      <TicketReports
-        metrics={metrics}
-        isWide={isWide}
-        cardWidths={cardWidths}
-        setCardWidths={setCardWidths}
-      />
-    </ScrollView>
-  );
-};
-
-/* ------------------------------------------------------------------ */
-/*  STYLES                                                            */
-/* ------------------------------------------------------------------ */
-
+/* ================================================================
+   STYLES
+================================================================ */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc" },
-  scroll: { alignItems: "center", paddingBottom: 20 },
-  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
-
-  /* Cards */
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 30,
-    margin: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-    width: "95%",
-    marginTop: 30,
+  scroll: {
+    paddingBottom: 40,
+    alignItems: "center",
+    backgroundColor: "#f8fafc",
   },
+  centered: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  exportBtn: {
+    backgroundColor: "#0f37f1",
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 20,
+  },
+  exportText: { color: "white", fontWeight: "700", fontSize: 14 },
 
-  /* Card Titles */
+  card: {
+    width: "95%",
+    maxWidth: 1000,
+    backgroundColor: "#fff",
+    padding: 20,
+    borderRadius: 12,
+    marginVertical: 12,
+    elevation: 1,
+  },
   cardTitle: {
     fontSize: 18,
     fontWeight: "800",
     color: "#0f172a",
-    marginBottom: 16,
     textAlign: "center",
-  },
-
-  subTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#0f37f1",
-    marginBottom: 8,
-    alignSelf: "center",
-  },
-
-  /* Layout */
-  row: {
-    width: "100%",
-    justifyContent: "center",
-    flexWrap: "wrap",
     marginBottom: 16,
   },
-  full: { width: "95%" },
-  fullWidth: { width: "100%" },
-  half: { flexBasis: "48%" },
-  oneThird: { flexBasis: "32%" },
-  twoThird: { flexBasis: "64%" },
 
   subCard: {
     backgroundColor: "#f9fafb",
+    padding: 12,
     borderRadius: 10,
-    padding: 10,
-    margin: 8,
-    flexGrow: 1,
+    marginBottom: 14,
   },
-
-  /* Charts */
-  chartBox: {
-    borderRadius: 12,
-    marginVertical: 8,
-    paddingTop: 10,
-  },
-
-  noData: {
-    textAlign: "center",
-    color: "#94a3b8",
-    fontStyle: "italic",
-    paddingVertical: 10,
-  },
-
-  /* Rank Number (Specific to Most Used) */
-  rank: { 
-    fontWeight: "bold", 
-    color: "#0f37f1", 
-    width: 24, 
-    fontSize: 13,
-    alignSelf: 'flex-start',
-    marginTop: 1
-  },
-
-  /* Ticket Section */
-  ticketContainer: {
-    width: "100%",
-    justifyContent: "space-between",
-    gap: 20,
-    marginTop: 10,
-  },
-  ticketChartBox: {
-    flex: 1,
-    backgroundColor: "#f9fafb",
-    padding: 16,
-    borderRadius: 12,
-    elevation: 2,
-  },
-  ticketSummaryBox: {
-    flex: 1,
-    backgroundColor: "#f9fafb",
-    padding: 18,
-    borderRadius: 12,
-    elevation: 2,
-  },
-
-  sectionTitle: {
+  subTitle: {
     fontSize: 16,
     fontWeight: "700",
     color: "#0f37f1",
-    marginBottom: 12,
     textAlign: "center",
+    marginBottom: 10,
+  },
+
+  row: {
+    width: "100%",
+    justifyContent: "space-between",
+  },
+  half: {
+    width: "48%",
+  },
+
+  chartBox: {
+    borderRadius: 12,
+    marginTop: 10,
+  },
+
+  interestRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+  },
+  interestName: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  interestPercent: {
+    fontSize: 11,
+    color: "#64748b",
+  },
+  interestProgressBg: {
+    width: "100%",
+    height: 5,
+    borderRadius: 4,
+    backgroundColor: "#e5e7eb",
+    marginTop: 4,
+  },
+  interestProgressFill: {
+    height: 5,
+    borderRadius: 4,
+  },
+  interestCount: {
+    width: 40,
+    textAlign: "right",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  rank: {
+    fontWeight: "bold",
+    marginRight: 8,
+    color: "#0f37f1",
   },
 
   statsGrid: {
-    width: "100%",
     flexDirection: "row",
     flexWrap: "wrap",
+    gap: 10,
     justifyContent: "space-between",
-    gap: 12,
   },
-
   statCard: {
     width: "48%",
+    padding: 14,
     backgroundColor: "#fff",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
     borderRadius: 10,
-    elevation: 2,
+    elevation: 1,
     borderLeftWidth: 5,
   },
-  statLabel: { fontSize: 13, color: "#475569", marginBottom: 4 },
+  statLabel: { fontSize: 12, color: "#64748b" },
   statValue: { fontSize: 20, fontWeight: "800", color: "#0f172a" },
 
   blueLeftBorder: { borderLeftColor: "#0f37f1" },
@@ -647,61 +732,94 @@ const styles = StyleSheet.create({
   purpleLeftBorder: { borderLeftColor: "#8b5cf6" },
 
   smallNote: {
+    marginTop: 6,
     textAlign: "center",
-    fontSize: 13,
-    color: "#475569",
-    marginTop: 4,
-  },
-
-  highlight: {
-    color: "#0f37f1",
-    fontWeight: "700",
-  },
-
-  /* ----------- SHARED LIST STYLES (Compact Professional Version) ----------- */
-  /* Used for both "Interests" and "Most Used Destinations" */
-  
-  interestRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 6, 
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
-  },
-
-  interestName: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#0f172a",
-    marginBottom: 1,
-  },
-
-  interestPercent: {
-    fontSize: 11, 
     color: "#64748b",
-    marginTop: -2,
+  },
+  highlight: { color: "#0f37f1", fontWeight: "700" },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    width: "90%",
+    maxWidth: 420,
+    borderRadius: 14,
+    padding: 18,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  modalSubtitle: { color: "#64748b", marginBottom: 12 },
+
+  modalGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 8,
   },
 
-  interestProgressBg: {
-    width: "100%",
-    height: 5, 
-    backgroundColor: "#e5e7eb",
-    borderRadius: 4,
-    marginTop: 4,
+  optionCard: {
+    width: "48%",
+    backgroundColor: "#f9fafb",
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  optionCardFull: { width: "100%" },
+  optionCardSelected: {
+    backgroundColor: "#eff6ff",
+    borderColor: "#0f37f1",
   },
 
-  interestProgressFill: {
-    height: 5,
-    borderRadius: 4,
-  },
+  optionTitle: { fontWeight: "700", fontSize: 14, marginBottom: 4 },
+  optionDesc: { fontSize: 12, color: "#64748b" },
 
-  interestCount: {
-    width: 38, 
-    textAlign: "right",
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#334155",
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 14,
+    gap: 10,
+  },
+  modalCancelBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  modalCancelText: { color: "#64748b" },
+  modalExportBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#0f37f1",
+  },
+  modalExportText: { color: "white", fontWeight: "700" },
+
+  loadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 99,
+  },
+  loadingText: {
+    color: "#fff",
+    marginTop: 10,
+    fontSize: 15,
+    fontWeight: "600",
   },
 });
 

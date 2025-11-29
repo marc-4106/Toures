@@ -78,6 +78,81 @@ const trapezoid = (x, a, b, c, d) => {
 };
 
 /* -------------------------------------------
+ * Price Extraction (based on Firestore fields)
+ * ------------------------------------------*/
+export function extractPrice(place) {
+  if (!place?.pricing) return 0;
+
+  const p = place.pricing;
+
+  if (p.lodging?.base) return Number(p.lodging.base);
+  if (p.mealPlan?.aLaCarteDefault) return Number(p.mealPlan.aLaCarteDefault);
+  if (p.dayUse?.dayPassPrice) return Number(p.dayUse.dayPassPrice);
+
+  return 0;
+}
+
+/* -------------------------------------------
+ * Detect Place Category (hotel / meal / activity)
+ * ------------------------------------------*/
+export function getPlaceCategory(place) {
+  const p = place?.pricing || {};
+  if (p.lodging?.base) return "hotel";
+  if (p.mealPlan?.aLaCarteDefault) return "meal";
+  if (p.dayUse?.dayPassPrice) return "activity";
+
+  const kind = (place.kind || "").toLowerCase();
+  const tags = (place.tags || []).map(t => t.toLowerCase());
+
+  if (["hotel", "resort", "inn"].includes(kind)) return "hotel";
+  if (kind === "restaurant" || tags.includes("foodie")) return "meal";
+
+  return "activity";
+}
+
+/* -------------------------------------------
+ * Compute Budget Benchmarks (per night / meal / activity)
+ * Only 1 user input: maxBudget
+ * ------------------------------------------*/
+export function computeBudgetBenchmarks(maxBudget, days) {
+  const daily = maxBudget / days;
+
+  return {
+    hotel: daily * 0.45,           // per night
+    meal: (daily * 0.30) / 3,      // per meal
+    activity: (daily * 0.25) / 1.5 // per activity
+  };
+}
+
+/* -------------------------------------------
+ * Price membership (0–1)
+ * ------------------------------------------*/
+export function priceMembership(place, prefs) {
+  const raw = extractPrice(place);
+  const maxBudget = Number(prefs.maxBudget || 0);
+const nights = Number(prefs?.nights ?? prefs?.meta?.nights ?? 0);
+
+const days = Math.max(1, nights + 1);
+
+
+  if (!maxBudget || raw <= 0) return 1;
+
+  const cat = getPlaceCategory(place);
+  const bench = computeBudgetBenchmarks(maxBudget, days);
+
+  const benchmark =
+    cat === "hotel" ? bench.hotel :
+    cat === "meal" ? bench.meal :
+    bench.activity;
+
+  if (raw <= benchmark) return 1;
+
+  const fit = 1 - (raw - benchmark) / benchmark;
+  return Math.max(0, fit);
+}
+
+
+/* -------------------------------------------
  * Enhanced Interest Fuzzy Fit (NORMALIZED)
  * tags: raw place.tags array (strings)
  * interests: user selected interests (strings)
@@ -222,7 +297,6 @@ export const fuzzyScore = (place, preferences = {}) => {
   const lodgingPref = normalizeKey(preferences.lodgingPreference || "any");
 
   const distanceKm = kmFromStart(place, start);
-  const price = Number(place.price || place.estimatedPrice || 0);
 
   // Normalized tags for scoring logic
   const normTags = (place.tags || []).map((t) =>
@@ -243,29 +317,9 @@ export const fuzzyScore = (place, preferences = {}) => {
   // 60–140 km: gradually decreasing
   const distMembership = trapezoid(distanceKm, 0, 15, 60, 140);
 
-  // Price fuzzy membership
-  let priceMembership = 1;
-  if (maxBudget > 0 && price > 0) {
-    if (price <= maxBudget) {
-      priceMembership = trapezoid(
-        price,
-        0,
-        maxBudget * 0.3,
-        maxBudget * 0.7,
-        maxBudget
-      );
-    } else if (price <= maxBudget * 2) {
-      priceMembership = trapezoid(
-        price,
-        maxBudget,
-        maxBudget * 1.2,
-        maxBudget * 1.6,
-        maxBudget * 2
-      );
-    } else {
-      priceMembership = 0.05; // very expensive but not absolute zero
-    }
-  }
+
+  const priceMembershipValue = priceMembership(place, preferences);
+
 
   const interestMembership = iFit;
 
@@ -331,13 +385,56 @@ export const fuzzyScore = (place, preferences = {}) => {
   wDistance /= sum;
   wPrice /= sum;
 
+/* -------------------------------------------
+ * Seasonal Influence (Dry vs Rainy)
+ * Based on Negros Occidental climate
+ * ------------------------------------------*/
+const seasonMode = preferences.seasonMode || "dry";
+
+// DRY SEASON (Jan–May)
+if (seasonMode === "dry") {
+  if (normTags.includes("beach") || normTags.includes("island") || normTags.includes("scenic_view")) {
+    kindMatchMultiplier *= 1.20;
+  }
+  if (normTags.includes("mountain") || normTags.includes("hiking") || normTags.includes("trekking")) {
+    kindMatchMultiplier *= 1.10;
+  }
+  if (normTags.includes("waterfall") || normTags.includes("lake")) {
+    kindMatchMultiplier *= 0.85;
+  }
+}
+
+// RAINY SEASON (Jun–Dec)
+else {
+  if (normTags.includes("waterfall") || normTags.includes("lake") || normTags.includes("forest") || normTags.includes("nature")) {
+    kindMatchMultiplier *= 1.18;
+  }
+  if (normTags.includes("beach") || normTags.includes("island")) {
+    kindMatchMultiplier *= 0.80;
+  }
+  if (normTags.includes("mountain") || normTags.includes("trekking") || normTags.includes("camping") || normTags.includes("hiking")) {
+    kindMatchMultiplier *= 0.75;
+  }
+  // Indoor activities get a boost (good during rainy days)
+  const indoorTags = [
+    "foodie", "local_cuisine", "seafood", "buffet", "street_food",
+    "shopping", "mall", "market", "city", "urban",
+    "museum", "heritage", "art_gallery"
+  ];
+  if (indoorTags.some(t => normTags.includes(t))) {
+    kindMatchMultiplier *= 1.10;
+  }
+}
+
+
   /* -------------------------------------------
    * Final fuzzy score
    * ------------------------------------------*/
   const score =
     (wInterest * interestMembership +
       wDistance * distMembership +
-      wPrice * priceMembership) * kindMatchMultiplier;
+      wPrice * priceMembershipValue) * kindMatchMultiplier;
+
 
   return Math.min(1, Math.max(0, score));
 };
@@ -367,29 +464,46 @@ export const explainScore = (place, preferences = {}) => {
 
   const distMembership = trapezoid(distanceKm, 0, 15, 60, 140);
 
-  const price = Number(place.price || place.estimatedPrice || 0);
-  let priceMembership = 1;
-  if (maxBudget > 0 && price > 0) {
-    if (price <= maxBudget) {
-      priceMembership = trapezoid(
-        price,
-        0,
-        maxBudget * 0.3,
-        maxBudget * 0.7,
-        maxBudget
-      );
-    } else if (price <= maxBudget * 2) {
-      priceMembership = trapezoid(
-        price,
-        maxBudget,
-        maxBudget * 1.2,
-        maxBudget * 1.6,
-        maxBudget * 2
-      );
-    } else {
-      priceMembership = 0.05;
-    }
+
+const priceFitValue = priceMembership(place, preferences);
+
+
+  const seasonMode = preferences.seasonMode === "rainy" ? "rainy" : "dry";
+
+let seasonalEffects = [];
+
+if (seasonMode === "dry") {
+  if (normTags.includes("beach") || normTags.includes("island") || normTags.includes("scenic_view")) {
+    seasonalEffects.push("+20% boost for dry season beach/island conditions");
   }
+  if (normTags.includes("mountain") || normTags.includes("hiking") || normTags.includes("trekking")) {
+    seasonalEffects.push("+10% boost for dry season hiking/mountain visibility");
+  }
+  if (normTags.includes("waterfall") || normTags.includes("lake")) {
+    seasonalEffects.push("-15% penalty: waterfalls/lakes weaker in dry season");
+  }
+}
+
+if (seasonMode === "rainy") {
+  if (normTags.includes("waterfall") || normTags.includes("lake") || normTags.includes("forest") || normTags.includes("nature")) {
+    seasonalEffects.push("+18% boost: waterfalls/nature best during rainy season");
+  }
+  if (normTags.includes("beach") || normTags.includes("island")) {
+    seasonalEffects.push("-20% penalty due to rainy season beach safety/weather");
+  }
+  if (normTags.includes("mountain") || normTags.includes("trekking") || normTags.includes("camping") || normTags.includes("hiking")) {
+    seasonalEffects.push("-25% penalty: unsafe to hike/trek during rainy season");
+  }
+
+  const indoorTags = [
+    "foodie","local_cuisine","seafood","buffet","street_food",
+    "shopping","mall","market","city","urban",
+    "museum","heritage","art_gallery"
+  ];
+  if (indoorTags.some(t => normTags.includes(t))) {
+    seasonalEffects.push("+10% boost for indoor-friendly rainy-season activities");
+  }
+}
 
   const kind = normalizeKey(place.kind || "");
   const isLodging =
@@ -441,7 +555,7 @@ export const explainScore = (place, preferences = {}) => {
   const finalScore =
     (normWeights.interest * iFit +
       normWeights.distance * distMembership +
-      normWeights.price * priceMembership) *
+      normWeights.price * priceFitValue) *
     kindMultiplier;
 
   return {
@@ -452,7 +566,8 @@ export const explainScore = (place, preferences = {}) => {
     fuzzyComponents: {
       interestFit: Number(iFit.toFixed(3)),
       distanceFit: Number(distMembership.toFixed(3)),
-      priceFit: Number(priceMembership.toFixed(3)),
+      priceFit: Number(priceFitValue.toFixed(3)),
+
     },
 
     normalizedWeights: {
@@ -465,6 +580,8 @@ export const explainScore = (place, preferences = {}) => {
     appliedBoosts,
     travelerType,
     lodgingPref,
+    seasonMode,                  // "dry" or "rainy"
+    seasonalEffects,             // array of explanations
 
     themeBoostFactor: Number(themeBoostFactor.toFixed(3)),
     kindMultiplierUsed: Number(kindMultiplier.toFixed(3)),

@@ -12,15 +12,17 @@ import {
   SafeAreaView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 
 if (Platform.OS === "android") {
   UIManager.setLayoutAnimationEnabledExperimental &&
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-export default function FAQScreen() {
+export default function FAQScreen( ) {
   const [activeIndex, setActiveIndex] = useState(null);
   const [search, setSearch] = useState("");
+  const navigation = useNavigation();
 
   const faqs = [
     {

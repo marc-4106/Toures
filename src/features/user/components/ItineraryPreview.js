@@ -1205,12 +1205,13 @@ export default function ItineraryPreview({ plan, onSave }) {
         startCity={plan?.meta?.startCity}
       />
 
-      {/* Why This Place Modal */}
       <WhyThisPlaceModal
+        key={whyVisible ? "why-open" : "why-closed"}
         visible={whyVisible}
         onClose={() => setWhyVisible(false)}
         data={whyData}
       />
+
     </View>
   );
 }

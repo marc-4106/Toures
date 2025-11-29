@@ -258,6 +258,11 @@ export default function TravelPreferencesScreen() {
       );
       const places = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
+      // AUTO-SEASON DETECTION BASED ON TRAVEL START DATE
+      const travelMonth = startDate.getMonth() + 1;
+      const seasonMode = (travelMonth >= 1 && travelMonth <= 5) ? "dry" : "rainy";
+
+
       const preferences = {
         startCity:
           useCurrentLocation && currentLocation
@@ -268,6 +273,7 @@ export default function TravelPreferencesScreen() {
         maxBudget: Number(maxBudget) || 0,
         interests: Array.from(selectedInterests),
         priority,
+        seasonMode,
       };
 
       const plan = buildItinerary(places, preferences);

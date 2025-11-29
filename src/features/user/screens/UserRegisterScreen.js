@@ -151,24 +151,39 @@ const UserRegisterScreen = ({ navigation }) => {
     return () => clearTimeout(delay);
   }, [username, handleUsernameValidation]);
 
-  const validate = () => {
-    const e = {};
-    if (!name.trim() || name.trim().length < 2) e.name = 'Please enter your full name.';
-    if (!username.trim()) e.username = 'Username is required.';
-    else if (invalidUsername) e.username = 'Invalid username format.';
-    else if (isAvailable === false) e.username = 'Username already taken.';
-    if (!EMAIL_RE.test(email.trim().toLowerCase())) e.email = 'Enter a valid email address.';
+const validate = () => {
+  const e = {};
+  
+  if (!name.trim() || name.trim().length < 2)
+    e.name = "Please enter your full name.";
 
-    if (pw.length < 6) e.pw = 'Password must be at least 6 characters.';
-    else if (!/[A-Z]/.test(pw)) e.pw = 'Password must include an uppercase letter.';
-    else if (!/[a-z]/.test(pw)) e.pw = 'Password must include a lowercase letter.';
-    else if (!/\d/.test(pw)) e.pw = 'Password must include a number.';
+  if (!username.trim())
+    e.username = "Username is required.";
+  else if (invalidUsername)
+    e.username = "Invalid username format.";
+  else if (isAvailable === null)
+    e.username = "Please wait for username validation.";
+  else if (isAvailable === false)
+    e.username = "Username already taken.";
 
-    if (pw2 !== pw) e.pw2 = 'Passwords do not match.';
+  if (!EMAIL_RE.test(email.trim().toLowerCase()))
+    e.email = "Enter a valid email address.";
 
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
+  if (pw.length < 6)
+    e.pw = "Password must be at least 6 characters.";
+  else if (!/[A-Z]/.test(pw))
+    e.pw = "Password must include an uppercase letter.";
+  else if (!/[a-z]/.test(pw))
+    e.pw = "Password must include a lowercase letter.";
+  else if (!/\d/.test(pw))
+    e.pw = "Password must include a number.";
+
+  if (pw2 !== pw)
+    e.pw2 = "Passwords do not match.";
+
+  setErrors(e);
+  return Object.keys(e).length === 0;
+};
 
   const handleSignup = async () => {
     if (!validate()) return;
@@ -180,13 +195,35 @@ const UserRegisterScreen = ({ navigation }) => {
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), pw);
       const user = userCredential.user;
 
-      await setDoc(doc(db, 'users', user.uid), {
-        name: name.trim(),
-        username: username.trim().toLowerCase(),
-        email: email.trim().toLowerCase(),
-        createdAt: serverTimestamp(),
-        emailVerified: false,
-      });
+       console.log("🔥 Writing new user to Firestore:", {
+      name: name.trim(),
+      username: username.trim().toLowerCase(),
+      email: email.trim().toLowerCase(),
+      role: "user",
+      isActive: true,
+      emailVerified: false,
+      createdAt: "serverTimestamp()",
+    });
+
+
+    await setDoc(
+       
+  doc(db, "users", user.uid),
+  {
+    name: name.trim(),
+    username: username.trim().toLowerCase(),
+    email: email.trim().toLowerCase(),
+
+    role: "user",
+    isActive: true,
+    emailVerified: false,
+    createdAt: serverTimestamp(),
+  },
+  { merge: true }
+  
+    // <-- THIS FIXES YOUR PROBLEM
+);
+
 
       await sendEmailVerification(user);
 

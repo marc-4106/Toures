@@ -9,17 +9,26 @@ import {
   Alert,
   Linking,
   Platform,
-  AppState
+  AppState,
+  SafeAreaView
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 
 import { auth, db } from "../../../services/firebaseConfig";
 // Ensure Timestamp is imported here
 import { doc, getDoc, updateDoc, Timestamp } from "firebase/firestore";
-import { signOut } from "firebase/auth";
+import {
+  signOut,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
+} from "firebase/auth";
+
 
 // New Helper Imports
 import { getPermissionStatuses, requestPermission } from "../../../utils/permissionCheck";
+import ChangePasswordModal from "../../admin/components/ChangePasswordModal";
+
 
 // ... Row Component ...
 function Row({ icon, label, right, onPress, danger }) {
@@ -56,6 +65,16 @@ function Section({ title, children }) {
 
 export default function AppSettingsScreen({ navigation }) {
   const [userEmail, setUserEmail] = useState("Loading...");
+
+  const [passwordModalVisible, setPasswordModalVisible] = useState(false);
+
+  const [passForm, setPassForm] = useState({
+    current: "",
+    new: "",
+    confirm: "",
+  });
+
+const [saving, setSaving] = useState(false);
    
   // Individual Permission States
   const [perms, setPerms] = useState({
@@ -126,6 +145,67 @@ export default function AppSettingsScreen({ navigation }) {
     }
   };
 
+  const handleChangePassword = async () => {
+  const { current, new: newPass, confirm } = passForm;
+
+  // Basic validations
+  if (!current || !newPass || !confirm) {
+    Alert.alert("Missing Fields", "Please fill in all fields.");
+    return;
+  }
+
+  if (newPass !== confirm) {
+    Alert.alert("Password Mismatch", "New passwords do not match.");
+    return;
+  }
+
+  if (newPass.length < 6) {
+    Alert.alert("Weak Password", "Password must be at least 6 characters.");
+    return;
+  }
+
+  try {
+    setSaving(true);
+    const currentUser = auth.currentUser;
+
+    // Re-authenticate with old password
+    const credential = EmailAuthProvider.credential(
+      currentUser.email,
+      current
+    );
+
+    await reauthenticateWithCredential(currentUser, credential);
+    await updatePassword(currentUser, newPass);
+
+    // Close modal
+    setPasswordModalVisible(false);
+
+    // Success alert (mobile-friendly)
+    Alert.alert(
+      "Success",
+      "Your password has been updated successfully!"
+    );
+
+    // Clear form fields
+    setPassForm({ current: "", new: "", confirm: "" });
+
+  } catch (error) {
+    //console.error(error);
+
+    // Firebase commonly returns "auth/invalid-credential" on wrong old password
+    if (error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
+      Alert.alert("Incorrect Password", "The current password you entered is incorrect.");
+    } else {
+      // Fallback (rarely needed)
+      Alert.alert("Error", "Unable to change password. Please try again.");
+    }
+
+  } finally {
+    setSaving(false);
+  }
+};
+
+
   // 3. DELETE ACCOUNT LOGIC (The implementation)
   const handleDeleteAccount = () => {
     Alert.alert(
@@ -155,7 +235,7 @@ export default function AppSettingsScreen({ navigation }) {
 
               // Sign the user out immediately
               await signOut(auth);
-              
+
               // The Auth Context/Listener in your app should handle the redirect to Login
               Alert.alert("Scheduled", "Your account is scheduled for deletion in 72 hours.");
               
@@ -170,12 +250,23 @@ export default function AppSettingsScreen({ navigation }) {
   };
 
   return (
+     <SafeAreaView style={styles.safeArea}>
+     {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={24} color="#0f172a" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Account Settings</Text>
+      </View>
+
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.screenTitle}>Account Settings</Text>
+      {/* <Text style={styles.screenTitle}>Account Settings</Text> */}
 
       <Section title="Account">
         <Row icon="person-circle-outline" label="Edit Profile" onPress={() => navigation.navigate('EditProfile')} />
         <Row icon="mail-outline" label="Email" right={<Text style={styles.valueText}>{userEmail}</Text>} />
+        <Row icon="key-outline" label="Change Password" onPress={() => setPasswordModalVisible(true)} />
+
       </Section>
 
       <Section title="Device Permissions">
@@ -231,6 +322,19 @@ export default function AppSettingsScreen({ navigation }) {
 
       <View style={{ height: 24 }} />
     </ScrollView>
+    <ChangePasswordModal
+  visible={passwordModalVisible}
+  onClose={() => {
+    setPasswordModalVisible(false);
+    setPassForm({ current: "", new: "", confirm: "" });
+  }}
+  onSave={handleChangePassword}
+  saving={saving}
+  passForm={passForm}
+  setPassForm={setPassForm}
+/>
+
+    </SafeAreaView>
   );
 }
 
@@ -262,4 +366,26 @@ const styles = StyleSheet.create({
   valueText: { color: "#64748b", fontSize: 13, fontWeight: "600" },
   hintWrap: { paddingHorizontal: 12, paddingVertical: 10 },
   hintText: { color: "#64748b", fontSize: 12 },
+   safeArea: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+  },
+  backBtn: {
+    marginRight: 12,
+    padding: 6,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
 });

@@ -22,7 +22,7 @@ import {
 import { auth, db } from '../../../services/firebaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 import headTitle from '../../../../assets/login/WhiteToures.png';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -41,77 +41,102 @@ const UserLoginScreen = ({ navigation }) => {
 
   const pwRef = useRef(null);
 
-  const handleLogin = async () => {
-    if (!identifier.trim() || !password.trim()) {
-      setErrorMessage('Please enter both email/username and password.');
+const handleLogin = async () => {
+  if (!identifier.trim() || !password.trim()) {
+    setErrorMessage("Please enter both email/username and password.");
+    return;
+  }
+
+  setLoading(true);
+  setErrorMessage("");
+
+  try {
+    let emailToUse = identifier.trim().toLowerCase();
+
+    // 🔍 If not an email → treat as username
+    if (!EMAIL_RE.test(emailToUse)) {
+      const q = query(collection(db, "users"), where("username", "==", identifier.trim()));
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        setErrorMessage("Username not found.");
+        setLoading(false);
+        return;
+      }
+      emailToUse = snap.docs[0].data().email;
+    }
+
+    // 🔐 Sign in
+    const userCredential = await signInWithEmailAndPassword(auth, emailToUse, password);
+    const user = userCredential.user;
+
+    // 🔄 Refresh user status
+    await user.reload();
+
+    // ⭐ SAVE emailVerified=true SAFELY
+    if (user.emailVerified) {
+      const userRef = doc(db, "users", user.uid);
+      const snap = await getDoc(userRef);
+
+      if (snap.exists()) {
+        // Use merge setDoc (SAFE AND NEVER THROWS)
+        await setDoc(userRef, { emailVerified: true }, { merge: true });
+      } else {
+        console.log("⚠ User Firestore document does NOT exist yet, skipping update.");
+      }
+    }
+
+    // ❌ STILL not verified → show modal
+    if (!user.emailVerified) {
+      setShowVerifyModal(true);
+      setLoading(false);
       return;
     }
 
-    setLoading(true);
-    setErrorMessage('');
-    try {
-      let emailToUse = identifier.trim().toLowerCase();
+    // 🔥 Now check Firestore record
+    const docRef = doc(db, "users", user.uid);
+    const docSnap = await getDoc(docRef);
 
-      if (!EMAIL_RE.test(emailToUse)) {
-        const q = query(collection(db, 'users'), where('username', '==', identifier.trim()));
-        const snap = await getDocs(q);
-
-        if (snap.empty) {
-          setErrorMessage('Username not found.');
-          setLoading(false);
-          return;
-        }
-
-        emailToUse = snap.docs[0].data().email;
-      }
-
-      const userCredential = await signInWithEmailAndPassword(auth, emailToUse, password);
-      const user = userCredential.user;
-
-      // Handle unverified email
-      if (!user.emailVerified) {
-        setShowVerifyModal(true);
-        setLoading(false);
-        return;
-      }
-
-      const docRef = doc(db, 'users', user.uid);
-      const docSnap = await getDoc(docRef);
-
-      if (!docSnap.exists()) {
-        setErrorMessage('User record not found.');
-        setLoading(false);
-        return;
-      }
-
-      const data = docSnap.data();
-      if (data.isActive === false) {
-        setErrorMessage('This account is disabled.');
-        setLoading(false);
-        return;
-      }
-
-      navigation.replace('BottomTab');
-    } catch (error) {
-      console.log(error);
-      switch (error.code) {
-        case 'auth/invalid-email':
-          setErrorMessage('Not a valid email.');
-          break;
-        case 'auth/user-not-found':
-        case 'auth/wrong-password':
-          setErrorMessage('Invalid email/username or password.');
-          break;
-        case 'auth/too-many-requests':
-          setErrorMessage('Too many attempts. Try again later.');
-          break;
-        default:
-          setErrorMessage('Something went wrong. Please try again.');
-      }
-    } finally {
+    if (!docSnap.exists()) {
+      setErrorMessage("User record not found.");
       setLoading(false);
+      return;
     }
-  };
+
+    const data = docSnap.data();
+
+    if (data.isActive === false) {
+      setErrorMessage("This account is disabled.");
+      setLoading(false);
+      return;
+    }
+
+    // 🎉 LOGIN SUCCESS
+    navigation.replace("BottomTab");
+
+  } catch (error) {
+    console.log("LOGIN ERROR =>", error);
+
+    switch (error.code) {
+      case "auth/invalid-email":
+        setErrorMessage("Not a valid email.");
+        break;
+      case "auth/user-not-found":
+      case "auth/wrong-password":
+        setErrorMessage("Invalid email/username or password.");
+        break;
+      case "auth/too-many-requests":
+        setErrorMessage("Too many attempts. Try again later.");
+        break;
+      default:
+        // We catch ANY error from Firestore update here
+        setErrorMessage("Something went wrong. Please try again.");
+    }
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const handleForgotPassword = async () => {
     setShowForgotModal(true);

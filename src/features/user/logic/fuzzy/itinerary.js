@@ -164,20 +164,7 @@ export function buildItinerary(places, prefs) {
       rankedHotels.sort((a, b) => b.score - a.score); // Re-sort after filtering
   }
 
-  // 🌦️ Apply season bias to activities
-  const month = new Date(prefs.startDate).getMonth() + 1;
-  const isWet = month >= 6 && month <= 10;
-  rankedActivities = rankedActivities.map((r) => {
-    const kind = toKey(r.place.kind);
-    let bias = 1;
-    if (prefs.seasonTolerance === "dry" && isWet && ["beach", "park"].includes(kind))
-      bias *= 0.9;
-    if (prefs.seasonTolerance === "wet" && !isWet && ["museum", "indoor"].includes(kind))
-      bias *= 0.9;
-    // Apply score * bias and clamp to ensure it doesn't go below zero
-    return { ...r, score: Math.max(0, r.score * bias) }; 
-  });
-  rankedActivities.sort((a, b) => b.score - a.score); // Re-sort after applying bias
+
 
   // Create fuzzy-based buckets
   const hotelAlts = bucketAlts(rankedHotels, prefs);

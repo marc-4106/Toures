@@ -1,3 +1,4 @@
+// src/features/user/screens/HelpSupportScreen.js
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -12,6 +13,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import SupportFormModal from "../components/SupportFormModal";
 import { auth } from "../../../services/firebaseConfig";
+import { useNavigation } from "@react-navigation/native";
 
 // --- Reusable Components ---
 function Section({ title, children }) {
@@ -40,7 +42,9 @@ function Row({ icon, label, sub, onPress }) {
       ) : null}
     </View>
   );
+
   if (!onPress) return content;
+
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
       {content}
@@ -48,19 +52,20 @@ function Row({ icon, label, sub, onPress }) {
   );
 }
 
-// --- Main Screen Component ---
-export default function HelpSupportScreen({ navigation }) {
+// --- Main Component ---
+export default function HelpSupportScreen() {
+  const navigation = useNavigation(); // ✅ FIXED: Only use this
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [userEmail, setUserEmail] = useState(null);
-  const [userId, setUserId] = useState(null); // ✅ Added userId state
+  const [userId, setUserId] = useState(null);
   const [isLoadingEmail, setIsLoadingEmail] = useState(true);
 
   useEffect(() => {
     const fetchUserData = () => {
       const user = auth.currentUser;
       if (user) {
-        if (user.email) setUserEmail(user.email);
-        if (user.uid) setUserId(user.uid); // ✅ Fetch userId from Firebase
+        setUserEmail(user.email ?? null);
+        setUserId(user.uid ?? null);
       }
       setIsLoadingEmail(false);
     };
@@ -71,26 +76,30 @@ export default function HelpSupportScreen({ navigation }) {
     if (!userEmail || !userId) {
       Alert.alert(
         "Authentication Error",
-        "User data is not available. Please wait or re-log in."
+        "User data is not available. Please re-open the app."
       );
       return;
     }
     setIsModalVisible(true);
   };
 
-  const closeSupportForm = () => setIsModalVisible(false);
-  const openStatus = () =>
-    Linking.openURL("https://example.com/status").catch(() => {});
-  //const openFAQ = () => {};
-  const openGuides = () => Alert.alert("Quick Start", "Show short how-to guides here.");
+  const openGuides = () =>
+    Alert.alert("Quick Start", "Show short how-to guides here.");
 
   const contactLabel = isLoadingEmail ? "Loading user data..." : "Submit a Request";
   const contactSub = isLoadingEmail ? "Please wait" : "Create a support ticket";
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.screenTitle}>Help and Support</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={24} color="#0f172a" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Help and Support</Text>
+      </View>
 
+      {/* Overview Section */}
       <Section title="Overview">
         <View style={styles.blurb}>
           <Text style={styles.blurbText}>
@@ -100,6 +109,7 @@ export default function HelpSupportScreen({ navigation }) {
         </View>
       </Section>
 
+      {/* Contact Section */}
       <Section title="Contact">
         {isLoadingEmail ? (
           <View style={styles.loadingRow}>
@@ -111,11 +121,12 @@ export default function HelpSupportScreen({ navigation }) {
             icon="document-text-outline"
             label={contactLabel}
             sub={contactSub}
-            onPress={userEmail && userId ? openSupportForm : null} // ✅ Ensure both are present
+            onPress={userEmail && userId ? openSupportForm : null}
           />
         )}
       </Section>
 
+      {/* Guides */}
       <Section title="Guides">
         <Row
           icon="book-outline"
@@ -128,17 +139,17 @@ export default function HelpSupportScreen({ navigation }) {
           label="FAQ"
           sub="Answers to common questions"
           onPress={() => navigation.navigate("FAQScreen")}
-
         />
       </Section>
 
+      {/* Spacer */}
       <View style={{ height: 24 }} />
 
-      {/* ✅ Pass both userEmail and userId to modal */}
+      {/* Support Modal */}
       {userEmail && userId && (
         <SupportFormModal
           visible={isModalVisible}
-          onClose={closeSupportForm}
+          onClose={() => setIsModalVisible(false)}
           userEmail={userEmail}
           userId={userId}
         />
@@ -149,19 +160,38 @@ export default function HelpSupportScreen({ navigation }) {
 
 // --- Styles ---
 const styles = StyleSheet.create({
-  container: { padding: 16, backgroundColor: "#fff" },
-  screenTitle: {
-    fontSize: 22,
+  container: {
+    padding: 16,
+    backgroundColor: "#ffffff",
+    paddingBottom: 40,
+  },
+
+  /* Header */
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 12,
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+  },
+  backBtn: {
+    marginRight: 12,
+    padding: 6,
+  },
+  headerTitle: {
+    fontSize: 20,
     fontWeight: "800",
     color: "#0f172a",
-    marginBottom: 8,
   },
-  section: { marginTop: 12 },
+
+  /* Section */
+  section: { marginTop: 16 },
   sectionTitle: {
     fontSize: 14,
     fontWeight: "800",
     color: "#334155",
-    marginBottom: 6,
+    marginBottom: 8,
     marginLeft: 4,
   },
   card: {
@@ -171,9 +201,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
   },
+
+  /* Rows */
   row: {
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -186,10 +218,22 @@ const styles = StyleSheet.create({
     gap: 10,
     flex: 1,
   },
-  rowLabel: { fontSize: 14, color: "#0f172a", fontWeight: "700" },
-  rowSub: { fontSize: 12, color: "#64748b", marginTop: 2 },
+  rowLabel: {
+    fontSize: 14,
+    color: "#0f172a",
+    fontWeight: "700",
+  },
+  rowSub: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 2,
+  },
+
+  /* Overview */
   blurb: { paddingHorizontal: 12, paddingVertical: 10 },
   blurbText: { color: "#475569", fontSize: 13, lineHeight: 19 },
+
+  /* Loading Row */
   loadingRow: {
     paddingVertical: 12,
     paddingHorizontal: 16,

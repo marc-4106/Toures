@@ -90,7 +90,7 @@ export default function UserProfileScreen({ navigation }) {
 
           <Text style={styles.headerTitle}>Profile</Text>
 
-          <TouchableOpacity style={styles.circleBtn} onPress={() => navigation.navigate('Notifications')}>
+          <TouchableOpacity style={styles.circleBtn} onPress={() => navigation.navigate('Notification')}>
             <Ionicons name="notifications-outline" size={20} color="#fff" />
           </TouchableOpacity>
         </View>

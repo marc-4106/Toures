@@ -6,8 +6,9 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
-import { auth } from "../../../services/firebaseConfig";
+import { auth, db } from "../../../services/firebaseConfig";
 import { reload, sendEmailVerification } from "firebase/auth";
+import { doc, updateDoc } from "firebase/firestore";
 import { Ionicons } from "@expo/vector-icons";
 
 export default function VerifyEmailScreen({ navigation }) {
@@ -16,9 +17,19 @@ export default function VerifyEmailScreen({ navigation }) {
 
   const checkVerification = async () => {
     setChecking(true);
+
     await reload(auth.currentUser);
 
     if (auth.currentUser.emailVerified) {
+      // ⭐ UPDATE Firestore emailVerified = true
+      try {
+        await updateDoc(doc(db, "users", auth.currentUser.uid), {
+          emailVerified: true,
+        });
+      } catch (err) {
+        console.log("Failed to update Firestore:", err);
+      }
+
       navigation.replace("Login");
     } else {
       alert("Your email is not verified yet. Please check your inbox.");
@@ -42,7 +53,12 @@ export default function VerifyEmailScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <View style={styles.card}>
-        <Ionicons name="mail-open-outline" size={60} color="#007bff" style={{ marginBottom: 10 }} />
+        <Ionicons
+          name="mail-open-outline"
+          size={60}
+          color="#007bff"
+          style={{ marginBottom: 10 }}
+        />
 
         <Text style={styles.title}>Verify Your Email</Text>
 

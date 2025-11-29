@@ -3,7 +3,7 @@ import { createDrawerNavigator } from "@react-navigation/drawer";
 import ManageDestination from "../features/admin/screens/ManageDestination";
 import ManageEvents from "../features/admin/screens/ManageEvents";
 import SettingsScreen from "../features/admin/screens/SettingsScreen";
-import FeedbackScreen from "../features/admin/screens/FeedbackScreen";
+//import FeedbackScreen from "../features/admin/screens/FeedbackScreen";
 import Dashboard from "../features/admin/screens/DashboardScreen";
 import UserManagement from "../features/admin/screens/UserManagement";
 import Reports from "../features/admin/screens/ReportsScreen";
@@ -81,7 +81,7 @@ export default function AppDrawerNavigator({ role }) {
       <Drawer.Screen name="Dashboard" component={Dashboard} />
       <Drawer.Screen name="Manage Destinations" component={ManageDestination} />
       <Drawer.Screen name="Manage Events" component={ManageEvents} />
-      <Drawer.Screen name="Feedback" component={FeedbackScreen} />
+      
       <Drawer.Screen name="Notifications" component={Notifications} />
       <Drawer.Screen name="Support / Tickets" component={SupportTickets} />
       <Drawer.Screen name="User Management" component={UserManagement} />

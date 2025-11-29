@@ -84,7 +84,7 @@ export default function CustomDrawer(props) {
     "Audit Trail": "time-outline",
     "Manage Destinations": "map-outline",
     "Manage Events": "calendar-outline",
-    Feedback: "chatbubble-ellipses-outline",
+    //Feedback: "chatbubble-ellipses-outline",
   };
 
   const confirmLogout = async () => {
